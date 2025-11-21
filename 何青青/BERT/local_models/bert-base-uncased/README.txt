@@ -1,0 +1,1 @@
+Due to the file size limit on Github, the BERT model configuration file pytorch_model.bin cannot be uploaded. All other .json files have been uploaded to this directory. pytorch_model.bin can be downloaded from https://hf-mirror.com/google-bert/bert-base-uncased/tree/main.
