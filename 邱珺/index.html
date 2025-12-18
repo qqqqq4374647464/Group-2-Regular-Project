@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>x-spreadsheet + D3</title>
+  <link rel="stylesheet" href="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css" />
+  <script src="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js"></script>
+  <script src="https://unpkg.com/x-data-spreadsheet@1.1.9/dist/locale/zh-cn.js"></script>
+  <script src="https://d3js.org/d3.v6.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    #controls {
+      padding: 8px 12px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 440px 1fr;
+      align-items: start;
+      gap: 16px;
+      padding: 0 12px 12px;
+      box-sizing: border-box;
+      width: 100%;
+    }
+
+    #xspreadsheet {
+      width: 440px;
+      height: 520px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #my_dataviz {
+      position: relative;
+      min-width: 480px;
+      min-height: 620px;
+      height: 620px;
+    }
+
+    .ticktext {
+      font-size: 20;
+      stroke: black;
+      stroke-width: 0.05em;
+    }
+
+    /* 当未勾选图表时，表格占满可用宽度，图表区域隐藏 */
+    .layout.full {
+      grid-template-columns: 1fr;
+    }
+    .layout.full #xspreadsheet {
+      width: 100%;
+      height: calc(100vh - 80px);
+    }
+    .layout.full #my_dataviz {
+      display: none;
+    }
+
+    /* 勾选图表时使用两列布局 */
+    .layout.split {
+      grid-template-columns: 440px 1fr;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>
+      <input type="checkbox" class="checkbox" value="barchart" />
+      勾选生成柱状图
+    </label>
+  </div>
+  <div class="layout full">
+    <div id="xspreadsheet"></div>
+    <div id="my_dataviz"></div>
+  </div>
+
+  <script>
+    x_spreadsheet.locale("zh-cn");
+    const sheetEl = document.getElementById("xspreadsheet");
+    const chartEl = document.getElementById("my_dataviz");
+    const layoutEl = document.querySelector(".layout");
+    const checkbox = document.querySelector(".checkbox");
+
+    const xs = x_spreadsheet(sheetEl, {
+      mode: "edit",
+      showToolbar: true,
+      showGrid: true,
+      showContextmenu: true,
+      view: {
+        height: () => sheetEl.clientHeight,
+        width: () => sheetEl.clientWidth,
+      },
+      row: { len: 15, height: 25 },
+      col: { len: 8, width: 100, indexWidth: 60, minWidth: 60 },
+      style: {
+        bgcolor: "#ffffff",
+        align: "left",
+        valign: "middle",
+        textwrap: false,
+        strike: false,
+        underline: false,
+        color: "#0a0a0a",
+        font: { name: "Helvetica", size: 10, bold: false, italic: false },
+      },
+    });
+
+    // 预置示例数据
+    xs.cellText(0, 1, "计算机").cellText(0, 2, "法学").reRender();
+    xs.cellText(1, 0, "2017").cellText(1, 1, "23").cellText(1, 2, "15").reRender();
+    xs.cellText(2, 0, "2018").cellText(2, 1, "36").cellText(2, 2, "26").reRender();
+    xs.cellText(3, 0, "2019").cellText(3, 1, "23").cellText(3, 2, "33").reRender();
+    xs.cellText(4, 0, "2020").cellText(4, 1, "22").cellText(4, 2, "10").reRender();
+
+    xs.on("cell-edited", update);
+
+    function setLayout(checked) {
+      if (checked) {
+        layoutEl.classList.remove("full");
+        layoutEl.classList.add("split");
+        chartEl.style.display = "block";
+        sheetEl.style.width = "440px";
+        sheetEl.style.height = "520px";
+      } else {
+        layoutEl.classList.remove("split");
+        layoutEl.classList.add("full");
+        chartEl.style.display = "none";
+        sheetEl.style.width = "100%";
+        sheetEl.style.height = "calc(100vh - 80px)";
+      }
+      xs.reRender();
+    }
+
+    function getColor(idx) {
+      const palette = [
+        "#5ab1ef", "#ffb980", "#d87a80", "#2ec7c9", "#b6a2de",
+        "#8d98b3", "#e5cf0d", "#97b552", "#95706d", "#dc69aa",
+        "#07a2a4", "#9a7fd1", "#588dd5", "#f5994e", "#c05050",
+        "#59678c", "#c9ab00", "#7eb00a", "#6f5553", "#c14089",
+      ];
+      return palette[idx % palette.length];
+    }
+
+    function readTable() {
+      const yTitle = [];
+      const xTitle = [];
+      const data = [];
+      let rows = 0;
+      let cols = 0;
+
+      for (let i = 1; i < 20; i++) {
+        const cell = xs.cell(i, 0);
+        if (!cell || cell.text === undefined || cell.text === "") {
+          rows = i;
+          break;
+        }
+        yTitle.push(cell.text);
+        data.push([]);
+      }
+
+      for (let i = 1; i < 20; i++) {
+        const cell = xs.cell(0, i);
+        if (!cell || cell.text === undefined || cell.text === "") {
+          cols = i;
+          break;
+        }
+        xTitle.push(cell.text);
+      }
+
+      for (let i = 1; i < rows; i++) {
+        for (let j = 1; j < cols; j++) {
+          const cell = xs.cell(i, j);
+          if (!cell || cell.text === undefined || cell.text === "" || isNaN(+cell.text)) {
+            console.warn("数据格式错误", { row: i, col: j, cell });
+            return null;
+          }
+          data[i - 1][j - 1] = +cell.text;
+        }
+      }
+
+      return { xTitle, yTitle, data };
+    }
+
+    function update() {
+      d3.selectAll("svg").remove();
+      const checked = checkbox.checked;
+      if (!checked) return;
+
+      const table = readTable();
+      if (!table) return;
+
+      const { xTitle, yTitle, data } = table;
+      if (xTitle.length === 0 || yTitle.length === 0) return;
+
+      const plotData = [];
+      let max = 0;
+
+      yTitle.forEach((group, rowIdx) => {
+        const rowObj = { group };
+        xTitle.forEach((key, colIdx) => {
+          const value = data[rowIdx][colIdx];
+          rowObj[key] = value;
+          if (value > max) max = value;
+        });
+        plotData.push(rowObj);
+      });
+
+      const margin = { top: 40, right: 30, bottom: 40, left: 50 };
+      const width = Math.max(chartEl.clientWidth - margin.left - margin.right - 20, 200);
+      const height = Math.max(chartEl.clientHeight - margin.top - margin.bottom - 20, 200);
+
+      const svg = d3
+        .select("#my_dataviz")
+        .append("svg")
+        .attr("width", width + margin.left + margin.right + 40)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+      const x = d3.scaleBand().domain(yTitle).range([0, width]).padding([0.2]);
+      svg
+        .append("g")
+        .attr("transform", `translate(0, ${height})`)
+        .call(d3.axisBottom(x).tickSizeOuter(0));
+
+      const y = d3.scaleLinear().domain([0, max || 1]).range([height, 0]).nice();
+      svg.append("g").call(d3.axisLeft(y));
+
+      const color = d3.scaleOrdinal().domain(xTitle).range(xTitle.map((_, i) => getColor(i)));
+      const xSubgroup = d3.scaleBand().domain(xTitle).range([0, x.bandwidth()]).padding([0.05]);
+
+      svg
+        .append("g")
+        .selectAll("g")
+        .data(plotData)
+        .join("g")
+        .attr("transform", (d) => `translate(${x(d.group)},0)`)
+        .selectAll("rect")
+        .data((d) => xTitle.map((key) => ({ key, value: d[key] })))
+        .join("rect")
+        .attr("x", (d) => xSubgroup(d.key))
+        .attr("y", (d) => y(d.value))
+        .attr("width", xSubgroup.bandwidth())
+        .attr("height", (d) => height - y(d.value))
+        .attr("fill", (d, i) => getColor(i));
+
+      svg
+        .append("g")
+        .selectAll("g")
+        .data(plotData)
+        .join("g")
+        .attr("transform", (d) => `translate(${x(d.group)},0)`)
+        .selectAll("text")
+        .data((d) => xTitle.map((key) => ({ key, value: d[key] })))
+        .join("text")
+        .attr("x", (d) => xSubgroup(d.key) + xSubgroup.bandwidth() * 0.5)
+        .attr("y", (d) => y(d.value) - 10)
+        .text((d) => d.value)
+        .attr("text-anchor", "middle");
+
+      const legendData = xTitle.map((name, i) => ({ name, color: getColor(i) }));
+      const legend = svg
+        .selectAll(".legend")
+        .data(legendData)
+        .enter()
+        .append("g")
+        .attr("class", "legend")
+        .attr("transform", (d, i) => `translate(30, ${i * 20 + 120})`);
+
+      legend
+        .append("rect")
+        .attr("x", width - 25)
+        .attr("y", 8)
+        .attr("width", 40)
+        .attr("height", 5)
+        .style("fill", (d) => d.color);
+
+      legend
+        .append("text")
+        .attr("x", width + 20)
+        .attr("y", 15)
+        .style("text-anchor", "end")
+        .text((d) => d.name);
+    }
+
+    setLayout(checkbox.checked);
+
+    checkbox.addEventListener("change", () => {
+      const checked = checkbox.checked;
+      setLayout(checked);
+      if (checked) {
+        update();
+      } else {
+        d3.selectAll("svg").remove();
+      }
+    });
+  </script>
+</body>
+</html>
